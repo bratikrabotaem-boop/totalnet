@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>COMBINED VOLUME · BINANCE</title>
+
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+
+<style>
+/* ===== СТИЛИ ===== */
+body {
+    margin: 0;
+    background: #121417;
+    color: #e6e6e6;
+    font-family: -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif;
+    overflow-y: auto;
+    min-height: 100vh;
+    padding-bottom: 40px;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.wrapper {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+.title { 
+    font-size: 18px; 
+    font-weight: 800; 
+    color: #fff; 
+    text-align: center;
+}
+.sub { 
+    font-size: 12px; 
+    color: #6b7280; 
+    margin-top: 2px; 
+    margin-bottom: 15px; 
+    text-align: center;
+}
+
+/* Controls */
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.tf-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.tf-buttons button {
+    background: #1e2228;
+    border: 1px solid #374151;
+    color: #9ca3af;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tf-buttons button:active {
+    transform: scale(0.96);
+}
+
+.tf-buttons button.active {
+    background: #2a2d33;
+    color: #fff;
+    border-color: #6b7280;
+}
+
+/* ===== ГРАФИКИ ===== */
+.chart-box {
+    width: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #1f2937;
+    position: relative;
+    margin-bottom: 10px;
+    background: #121417;
+}
+
+.label-overlay {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    z-index: 5;
+    font-size: 11px;
+    font-weight: 700;
+    color: #4b5563;
+    pointer-events: none;
+}
+
+#price { 
+    height: 420px; 
+    width: 100%; 
+}
+/* Одно общее окно для объемов */
+#volume { 
+    height: 200px;
+    width: 100%; 
+}
+
+</style>
+</head>
+
+<body>
+<div class="wrapper">
+  <div class="title">BTC/USDT <span style="color:#ffffff; font-weight:400;">COMBO VOL</span></div>
+  <div class="sub">BINANCE REALTIME DATA</div>
+
+  <div class="controls">
+    <div class="tf-buttons" id="symbol-buttons">
+      <button onclick="setSymbol('BTCUSDT')" class="active">BTC</button>
+    </div>
+
+    <div class="tf-buttons" id="tf-buttons">
+      <button onclick="setTF('1d')">1D</button>
+      <button onclick="setTF('4h')">4H</button>
+      <button onclick="setTF('1h')" class="active">1H</button>
+      <button onclick="setTF('30m')">30M</button>
+      <button onclick="setTF('15m')">15M</button>
+      <button onclick="setTF('5m')">5M</button>
+    </div>
+  </div>
+
+  <div class="chart-box">
+      <div class="label-overlay">PRICE</div>
+      <div id="price"></div>
+  </div>
+  
+  <div class="chart-box">
+      <div class="label-overlay">VOLUME</div>
+      <div id="volume"></div>
+  </div>
+</div>
+
+<script>
+/* ===== iOS ZOOM BLOCK ===== */
+document.addEventListener('gesturestart', function(e) { e.preventDefault(); });
+
+/* ===== FORMATTER ===== */
+function formatTimeNoSeconds(time) {
+  const d = new Date(time * 1000);
+  const date = d.toLocaleDateString('ru-RU',{day:'2-digit',month:'short',year:'2-digit'});
+  const hh = String(d.getHours()).padStart(2,'0');
+  const mm = String(d.getMinutes()).padStart(2,'0');
+  return `${date} ${hh}:${mm}`;
+}
+
+/* ===== STATE ===== */
+let INTERVAL = '1h';
+let SYMBOL = 'BTCUSDT';
+let ws = null;
+let sessionId = 0;
+
+/* ===== CHART CONFIG ===== */
+const commonOpts = {
+  layout: { background: { color: '#121417' }, textColor: '#9ca3af' },
+  grid: { vertLines: { color: '#1f2937' }, horzLines: { color: '#1f2937' } },
+  localization: { timeFormatter: formatTimeNoSeconds },
+  timeScale: {
+    timeVisible: true, secondsVisible: false, borderColor: '#1f2937',
+    rightBarStaysOnScroll: true, lockVisibleTimeRangeOnResize: true
+  },
+  crosshair: { mode: 0 },
+  handleScroll: { vertTouchDrag: false, horzTouchDrag: true },
+  handleScale: { pinch: true, axisPressedMouseMove: true }
+};
+
+/* ===== CREATE CHARTS ===== */
+const priceContainer = document.getElementById('price');
+const volumeContainer = document.getElementById('volume');
+
+// 1. Price Chart
+const priceChart = LightweightCharts.createChart(priceContainer, {
+  ...commonOpts,
+  rightPriceScale:{visible:false}, leftPriceScale:{visible:false}
+});
+const candles = priceChart.addCandlestickSeries({
+  upColor:'#1fc77b', downColor:'#e04b4b',
+  borderUpColor:'#1fc77b', borderDownColor:'#e04b4b',
+  wickUpColor:'#1fc77b', wickDownColor:'#e04b4b'
+});
+
+// 2. Volume Chart (Combined)
+const volumeChart = LightweightCharts.createChart(volumeContainer, {
+  ...commonOpts,
+  rightPriceScale:{visible:false}, leftPriceScale:{visible:false}
+});
+
+// СЛОЙ 1: TOTAL VOLUME (Белый, рисуется первым, на заднем плане)
+const totalVolumeSeries = volumeChart.addHistogramSeries({
+  base: 0,
+  color: '#ffffff', // Белый цвет
+  priceFormat: { type: 'volume' }
+});
+
+// СЛОЙ 2: NET VOLUME (Зеленый/Красный, рисуется вторым, поверх белого)
+const netVolumeSeries = volumeChart.addHistogramSeries({
+  base: 0,
+  priceFormat: { type: 'volume' }
+});
+
+
+/* ===== SYNC & RESIZE ===== */
+let syncing=false;
+function syncCharts(a,b){
+  a.timeScale().subscribeVisibleLogicalRangeChange(range=>{
+    if(syncing||!range)return;
+    syncing=true;
+    b.timeScale().setVisibleLogicalRange(range);
+    syncing=false;
+  });
+}
+syncCharts(priceChart, volumeChart);
+syncCharts(volumeChart, priceChart);
+
+function resizeCharts(){
+  const w = priceContainer.parentElement.offsetWidth;
+  priceChart.resize(w, 420);
+  volumeChart.resize(w, 200);
+}
+window.addEventListener('resize',resizeCharts);
+setTimeout(resizeCharts, 100);
+
+/* ===== DATA LOADING ===== */
+async function loadData(){
+  sessionId++;
+  const currentSession=sessionId;
+
+  if(ws){
+    ws.onmessage=null;
+    ws.close();
+    ws=null;
+  }
+
+  try {
+    const r=await fetch(
+      `https://api.binance.com/api/v3/klines?symbol=${SYMBOL}&interval=${INTERVAL}&limit=1000`
+    );
+    const d=await r.json();
+
+    const cData=[], totalData=[], netData=[];
+
+    d.forEach(k=>{
+      const t=k[0]/1000;
+      
+      // Price
+      cData.push({time:t,open:+k[1],high:+k[2],low:+k[3],close:+k[4]});
+      
+      // Расчет объемов
+      const net = 2*k[10] - k[7];
+      const total = +k[7];
+      
+      // Определяем направление по знаку Net Volume
+      const isNetPositive = net >= 0;
+
+      // Данные для Белого слоя (Total)
+      // Направление зависит от Net: если Net+, Total идет вверх. Если Net-, Total идет вниз.
+      totalData.push({
+          time: t,
+          value: (isNetPositive ? total : -total) / 1e6,
+          color: '#ffffff' // Фиксированный белый
+      });
+
+      // Данные для Net слоя (Delta)
+      netData.push({
+        time: t,
+        value: net/1e6,
+        color: isNetPositive ? '#1fc77b' : '#e04b4b' // Зеленый или Красный
+      });
+    });
+
+    candles.setData(cData);
+    
+    // Загружаем данные в серии
+    totalVolumeSeries.setData(totalData);
+    netVolumeSeries.setData(netData);
+    
+    priceChart.timeScale().fitContent();
+    resizeCharts();
+
+    startRealtime(currentSession);
+  } catch(err) {
+    console.error("Load failed", err);
+  }
+}
+
+/* ===== REALTIME ===== */
+function startRealtime(currentSession){
+  ws=new WebSocket(
+    `wss://stream.binance.com:9443/ws/${SYMBOL.toLowerCase()}@kline_${INTERVAL}`
+  );
+
+  ws.onmessage=e=>{
+    if(currentSession!==sessionId)return;
+
+    const data = JSON.parse(e.data);
+    const k = data.k;
+    const time=Math.floor(k.t/1000);
+
+    // Update Price
+    candles.update({
+      time,
+      open:+k.o,
+      high:+k.h,
+      low:+k.l,
+      close:+k.c
+    });
+
+    // Calc Values
+    const currentNet = (2 * +k.Q - +k.q);
+    const currentTotal = +k.q;
+    
+    // Определяем направление
+    const isNetPositive = currentNet >= 0;
+
+    // Update White (Total) - направление зависит от Net
+    totalVolumeSeries.update({
+        time,
+        value: (isNetPositive ? currentTotal : -currentTotal) / 1e6,
+        color: '#ffffff'
+    });
+
+    // Update Net
+    netVolumeSeries.update({
+      time,
+      value: currentNet/1e6,
+      color: isNetPositive ? '#1fc77b' : '#e04b4b'
+    });
+  };
+
+  ws.onclose=()=>{
+    if(currentSession!==sessionId)return;
+    setTimeout(()=>startRealtime(currentSession),2000);
+  };
+}
+
+/* ===== CONTROLS ===== */
+function setTF(tf){
+  if(INTERVAL === tf) return;
+  INTERVAL=tf;
+  document.querySelectorAll('#tf-buttons button')
+    .forEach(b=>b.classList.remove('active'));
+  event.target.classList.add('active');
+  loadData();
+}
+
+function setSymbol(symbol){
+  if(SYMBOL === symbol) return;
+  SYMBOL=symbol;
+  
+  document.querySelectorAll('#symbol-buttons button')
+    .forEach(b=>b.classList.remove('active'));
+  event.target.classList.add('active');
+  
+  // Обновляем заголовок с белым цветом
+  document.querySelector('.title').innerHTML = `${SYMBOL} <span style="color:#ffffff; font-weight:400;">COMBO VOL</span>`;
+  
+  loadData();
+}
+
+// Init
+loadData();
+</script>
+</body>
+</html>
