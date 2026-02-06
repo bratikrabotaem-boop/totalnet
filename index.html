@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>COMBINED VOLUME · BINANCE</title>
+<title>COMBINED VOLUME · BINANCE PAIRS</title>
 
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 
 <style>
-/* ===== СТИЛИ ===== */
+/* ===== СТИЛЬ (Основа) ===== */
 body {
     margin: 0;
     background: #121417;
@@ -41,7 +41,7 @@ body {
     text-align: center;
 }
 
-/* Controls */
+/* Controls Container */
 .controls {
     display: flex;
     flex-direction: column;
@@ -78,7 +78,38 @@ body {
     border-color: #6b7280;
 }
 
-/* ===== ГРАФИКИ ===== */
+/* Выпадающий список */
+.select-container {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+}
+
+select#pair-select {
+    background: #1e2228;
+    color: #fff;
+    border: 1px solid #374151;
+    padding: 10px 15px;
+    border-radius: 8px;
+    font-size: 16px; 
+    font-weight: 600;
+    cursor: pointer;
+    width: 100%;
+    max-width: 300px; 
+    outline: none;
+    appearance: none; 
+    text-align: center;
+    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239ca3af%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+    background-repeat: no-repeat;
+    background-position: right 15px top 50%;
+    background-size: 12px auto;
+}
+
+select#pair-select:focus {
+    border-color: #6b7280;
+}
+
+/* Графики */
 .chart-box {
     width: 100%;
     border-radius: 12px;
@@ -104,23 +135,23 @@ body {
     height: 420px; 
     width: 100%; 
 }
-/* Одно общее окно для объемов */
 #volume { 
-    height: 200px;
+    height: 200px; /* Увеличил высоту как во втором примере */
     width: 100%; 
 }
-
 </style>
 </head>
 
 <body>
 <div class="wrapper">
-  <div class="title">BTC/USDT <span style="color:#ffffff; font-weight:400;">COMBO VOL</span></div>
-  <div class="sub">BINANCE REALTIME DATA</div>
+  <div class="title" id="chart-title">LOADING...</div>
+  <div class="sub">BINANCE REALTIME DATA (USDT ONLY)</div>
 
   <div class="controls">
-    <div class="tf-buttons" id="symbol-buttons">
-      <button onclick="setSymbol('BTCUSDT')" class="active">BTC</button>
+    <div class="select-container">
+      <select id="pair-select" onchange="setSymbol(this.value)">
+        <option value="" disabled selected>Loading pairs...</option>
+      </select>
     </div>
 
     <div class="tf-buttons" id="tf-buttons">
@@ -139,7 +170,7 @@ body {
   </div>
   
   <div class="chart-box">
-      <div class="label-overlay">VOLUME</div>
+      <div class="label-overlay">COMBO VOLUME (WHITE=TOTAL, COLOR=NET)</div>
       <div id="volume"></div>
   </div>
 </div>
@@ -159,7 +190,7 @@ function formatTimeNoSeconds(time) {
 
 /* ===== STATE ===== */
 let INTERVAL = '1h';
-let SYMBOL = 'BTCUSDT';
+let SYMBOL = 'BTCUSDT'; 
 let ws = null;
 let sessionId = 0;
 
@@ -186,6 +217,7 @@ const priceChart = LightweightCharts.createChart(priceContainer, {
   ...commonOpts,
   rightPriceScale:{visible:false}, leftPriceScale:{visible:false}
 });
+
 const candles = priceChart.addCandlestickSeries({
   upColor:'#1fc77b', downColor:'#e04b4b',
   borderUpColor:'#1fc77b', borderDownColor:'#e04b4b',
@@ -198,19 +230,18 @@ const volumeChart = LightweightCharts.createChart(volumeContainer, {
   rightPriceScale:{visible:false}, leftPriceScale:{visible:false}
 });
 
-// СЛОЙ 1: TOTAL VOLUME (Белый, рисуется первым, на заднем плане)
+// СЛОЙ 1: TOTAL VOLUME (Белый, задний план)
 const totalVolumeSeries = volumeChart.addHistogramSeries({
   base: 0,
-  color: '#ffffff', // Белый цвет
+  color: '#ffffff', 
   priceFormat: { type: 'volume' }
 });
 
-// СЛОЙ 2: NET VOLUME (Зеленый/Красный, рисуется вторым, поверх белого)
+// СЛОЙ 2: NET VOLUME (Цветной, передний план)
 const netVolumeSeries = volumeChart.addHistogramSeries({
   base: 0,
   priceFormat: { type: 'volume' }
 });
-
 
 /* ===== SYNC & RESIZE ===== */
 let syncing=false;
@@ -222,16 +253,48 @@ function syncCharts(a,b){
     syncing=false;
   });
 }
-syncCharts(priceChart, volumeChart);
-syncCharts(volumeChart, priceChart);
+syncCharts(priceChart,volumeChart);
+syncCharts(volumeChart,priceChart);
 
 function resizeCharts(){
-  const w = priceContainer.parentElement.offsetWidth;
-  priceChart.resize(w, 420);
-  volumeChart.resize(w, 200);
+  priceChart.resize(priceContainer.parentElement.offsetWidth, 420);
+  volumeChart.resize(volumeContainer.parentElement.offsetWidth, 200);
 }
 window.addEventListener('resize',resizeCharts);
 setTimeout(resizeCharts, 100);
+
+/* ===== LOAD ALL USDT PAIRS ===== */
+async function loadAllPairs() {
+    try {
+        const response = await fetch('https://api.binance.com/api/v3/exchangeInfo');
+        const data = await response.json();
+        
+        const symbols = data.symbols
+            .filter(s => s.status === 'TRADING' && s.symbol.endsWith('USDT'))
+            .map(s => s.symbol)
+            .sort(); 
+
+        const select = document.getElementById('pair-select');
+        select.innerHTML = ''; 
+
+        symbols.forEach(sym => {
+            const option = document.createElement('option');
+            option.value = sym;
+            option.text = sym;
+            if(sym === 'BTCUSDT') {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+
+        updateTitle();
+        loadData();
+
+    } catch (e) {
+        console.error("Error loading pairs:", e);
+        document.getElementById('chart-title').innerText = "ERROR LOADING PAIRS";
+    }
+}
 
 /* ===== DATA LOADING ===== */
 async function loadData(){
@@ -254,43 +317,40 @@ async function loadData(){
 
     d.forEach(k=>{
       const t=k[0]/1000;
-      
       // Price
       cData.push({time:t,open:+k[1],high:+k[2],low:+k[3],close:+k[4]});
       
-      // Расчет объемов
-      const net = 2*k[10] - k[7];
-      const total = +k[7];
+      // Volume Calculations
+      const total = +k[7]; // Quote Asset Volume
+      const taker = +k[10]; // Taker Buy Quote Asset Volume
+      const net = 2 * taker - total;
       
-      // Определяем направление по знаку Net Volume
+      // Определяем направление по знаку Net
       const isNetPositive = net >= 0;
 
-      // Данные для Белого слоя (Total)
-      // Направление зависит от Net: если Net+, Total идет вверх. Если Net-, Total идет вниз.
+      // 1. Total (Белый) - направление совпадает с Net
       totalData.push({
           time: t,
-          value: (isNetPositive ? total : -total) / 1e6,
-          color: '#ffffff' // Фиксированный белый
+          value: (isNetPositive ? total : -total) / 1e6, // Используем масштаб 1e6
+          color: '#ffffff'
       });
 
-      // Данные для Net слоя (Delta)
+      // 2. Net (Цветной)
       netData.push({
         time: t,
         value: net/1e6,
-        color: isNetPositive ? '#1fc77b' : '#e04b4b' // Зеленый или Красный
+        color: isNetPositive ? '#1fc77b' : '#e04b4b'
       });
     });
 
     candles.setData(cData);
-    
-    // Загружаем данные в серии
     totalVolumeSeries.setData(totalData);
     netVolumeSeries.setData(netData);
     
     priceChart.timeScale().fitContent();
-    resizeCharts();
-
+    resizeCharts(); 
     startRealtime(currentSession);
+    
   } catch(err) {
     console.error("Load failed", err);
   }
@@ -319,17 +379,17 @@ function startRealtime(currentSession){
     });
 
     // Calc Values
-    const currentNet = (2 * +k.Q - +k.q);
-    const currentTotal = +k.q;
+    const currentTotal = +k.q; // Quote Vol
+    const currentTaker = +k.Q; // Taker Quote Vol
+    const currentNet = (2 * currentTaker - currentTotal);
     
-    // Определяем направление
     const isNetPositive = currentNet >= 0;
 
-    // Update White (Total) - направление зависит от Net
+    // Update White (Total)
     totalVolumeSeries.update({
-        time,
-        value: (isNetPositive ? currentTotal : -currentTotal) / 1e6,
-        color: '#ffffff'
+      time,
+      value: (isNetPositive ? currentTotal : -currentTotal) / 1e6,
+      color: '#ffffff'
     });
 
     // Update Net
@@ -359,19 +419,16 @@ function setTF(tf){
 function setSymbol(symbol){
   if(SYMBOL === symbol) return;
   SYMBOL=symbol;
-  
-  document.querySelectorAll('#symbol-buttons button')
-    .forEach(b=>b.classList.remove('active'));
-  event.target.classList.add('active');
-  
-  // Обновляем заголовок с белым цветом
-  document.querySelector('.title').innerHTML = `${SYMBOL} <span style="color:#ffffff; font-weight:400;">COMBO VOL</span>`;
-  
+  updateTitle();
   loadData();
 }
 
+function updateTitle() {
+    document.getElementById('chart-title').innerHTML = `${SYMBOL} <span style="color:#ffffff; font-weight:400;">COMBO VOL</span>`;
+}
+
 // Init
-loadData();
+loadAllPairs();
 </script>
 </body>
 </html>
